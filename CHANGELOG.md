@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-19
+
+### Added
+- **`instantiate` tool**: create an instance of a local component (by key, id or exact name such as `Button/Primary`) and override its text by layer name in one call (`overrides: {"Label": "Submit"}`), hide layers (`hide`), and size it (`width`, `height`, or `layoutSizingHorizontal/Vertical` FILL/HUG inside auto-layout). A wrong layer name fails cleanly and removes the half-made instance.
+- **`build_tree` instance nodes**: `{type: "instance", component, overrides, hide, width}` lets a tree mix frames with component instances, so whole screens can be assembled from a component library in one call.
+- **`focus_node` tool**: scroll and zoom the canvas to a node and select it (switches page if needed).
+- **`list_frames` tool**: list the children of a node (default: current page) with canvas position, size, type and child count; `depth` 1-3 and `types` filter.
+
+### Changed
+- Plugin version 1.2.0; `ping` reports the new features. Re-run the Figma plugin after updating.
+
 ## [1.1.0] - 2026-10-19
 
 ### Added

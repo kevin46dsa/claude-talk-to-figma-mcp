@@ -11,6 +11,7 @@ import { registerFigJamTools } from "./figjam-tools";
 import { registerStyleTools } from "./style-tools";
 import { registerBatchTools } from "./batch-tools";
 import { registerTreeTools } from "./tree-tools";
+import { registerLibraryTools } from "./library-tools";
 
 /**
  * Register all Figma tools to the MCP server
@@ -30,6 +31,7 @@ export function registerTools(server: McpServer): void {
   registerStyleTools(server);
   registerBatchTools(server);
   registerTreeTools(server);
+  registerLibraryTools(server);
 }
 
 // Export all tool registration functions for individual usage if needed
@@ -46,4 +48,5 @@ export {
   registerStyleTools,
   registerBatchTools,
   registerTreeTools,
+  registerLibraryTools,
 };

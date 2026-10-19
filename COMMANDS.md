@@ -157,6 +157,16 @@ Both run inside one queue slot and one undo step. Prefer `build_tree` for new UI
 - Colors: `"#rgb"`, `"#rrggbb"`, `"#rrggbbaa"` or `{r,g,b,a}` with 0-1 values. `layout.padding` takes a number, `[vertical, horizontal]` or `[top, right, bottom, left]`.
 - Returns `rootId` and a map of named node ids. Limits: depth 8, 300 nodes. On any failure the partial tree is removed.
 
+### Components, focus and listing
+
+| Command | Purpose | Usage example |
+|---------|---------|---------------|
+| `instantiate` | Create a component instance with text overrides by layer name | `{"component": "Button/Primary", "parentId": "...", "overrides": {"Label": "Submit"}}` |
+| `focus_node` | Scroll/zoom to a node and select it | Show the user a section or frame |
+| `list_frames` | List children with canvas position and size | Inventory a page or section (`depth` 1-3, `types` filter) |
+
+In `build_tree`, use `{"type": "instance", "component": "Button/Primary", "overrides": {"Label": "Submit"}, "width": "fill"}`.
+
 ## Understanding coordinate systems
 
 Figma uses two coordinate systems:

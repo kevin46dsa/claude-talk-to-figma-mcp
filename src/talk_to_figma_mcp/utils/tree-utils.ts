@@ -7,8 +7,8 @@
 export const TREE_MAX_DEPTH = 8;
 export const TREE_MAX_NODES = 300;
 
-export type TreeNodeType = "frame" | "rectangle" | "text" | "ellipse";
-const NODE_TYPES: readonly string[] = ["frame", "rectangle", "text", "ellipse"];
+export type TreeNodeType = "frame" | "rectangle" | "text" | "ellipse" | "instance";
+const NODE_TYPES: readonly string[] = ["frame", "rectangle", "text", "ellipse", "instance"];
 
 export interface Rgba {
   r: number;
@@ -51,6 +51,10 @@ export interface TreeNodeInput {
   textCase?: string;
   textDecoration?: string;
   maxWidth?: number;
+  // instance (local component)
+  component?: string;
+  overrides?: Record<string, string>;
+  hide?: string[];
 }
 
 /** Normalised node sent to the plugin. */
@@ -87,6 +91,9 @@ export interface PluginTreeNode {
   textCase?: string;
   textDecoration?: string;
   textAutoResize?: string;
+  component?: string;
+  overrides?: Record<string, string>;
+  hide?: string[];
 }
 
 /** "#rgb", "#rrggbb" or "#rrggbbaa" -> {r,g,b,a} with 0-1 channels. Returns null if invalid. */
@@ -171,6 +178,9 @@ export function validateTree(root: unknown): string[] {
       return;
     }
     if (node.type === "text" && typeof node.text !== "string") errors.push(`${path}: text node needs a text string`);
+    if (node.type === "instance" && (typeof node.component !== "string" || !node.component)) {
+      errors.push(`${path}: instance node needs a component (key, id or exact name, e.g. "Button/Primary")`);
+    }
     if (node.type !== "frame" && node.children?.length) errors.push(`${path}: only frames can have children`);
 
     validateDim(node.width, "width", errors, path);
@@ -185,7 +195,7 @@ export function validateTree(root: unknown): string[] {
       if (node[dim] === "fill" && parentAuto === false) {
         errors.push(`${path}: ${dim} "fill" needs an auto-layout parent frame (set layout.mode on the parent)`);
       }
-      if (node[dim] === "hug" && node.type !== "text" && !isAutoLayout(node)) {
+      if (node[dim] === "hug" && node.type !== "text" && node.type !== "instance" && !isAutoLayout(node)) {
         errors.push(`${path}: ${dim} "hug" needs this node to be a frame with layout.mode HORIZONTAL or VERTICAL (or a text node)`);
       }
     }
@@ -253,6 +263,12 @@ export function normalizeTree(node: TreeNodeInput): PluginTreeNode {
     copy("textDecoration", node.textDecoration);
     // maxWidth makes the text wrap at that width
     if (node.maxWidth !== undefined && node.width === undefined) out.width = node.maxWidth;
+  }
+
+  if (node.type === "instance") {
+    copy("component", node.component);
+    copy("overrides", node.overrides);
+    copy("hide", node.hide);
   }
 
   if (node.children?.length) out.children = node.children.map(normalizeTree);

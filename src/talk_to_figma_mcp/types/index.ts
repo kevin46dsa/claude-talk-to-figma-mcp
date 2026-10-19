@@ -130,4 +130,7 @@ export type FigmaCommand =
   | "create_connector"
   | "create_section"
   | "batch"
-  | "build_tree";
+  | "build_tree"
+  | "instantiate"
+  | "focus_node"
+  | "list_frames";

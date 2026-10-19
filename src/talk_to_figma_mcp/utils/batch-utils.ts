@@ -106,6 +106,9 @@ export const BATCHABLE_COMMANDS: readonly string[] = [
   "create_text_style",
   "create_paint_style",
   "create_effect_style",
+  "instantiate",
+  "focus_node",
+  "list_frames",
 ];
 
 /** Creation commands that must name a parent (same rule as src/socket.ts). */
@@ -115,6 +118,7 @@ export const PARENT_REQUIRED_COMMANDS: ReadonlySet<string> = new Set([
   "create_component_instance", "create_component_set", "set_svg",
   "clone_node", "create_component_from_node",
   "create_section", "create_sticky", "create_shape_with_text", "create_connector",
+  "instantiate",
 ]);
 
 /**

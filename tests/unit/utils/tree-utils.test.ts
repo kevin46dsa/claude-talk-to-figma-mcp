@@ -130,6 +130,34 @@ describe('tree-utils', () => {
     });
   });
 
+
+  describe('instance nodes', () => {
+    it('validates and normalises an instance', () => {
+      const tree: TreeNodeInput = {
+        type: 'frame',
+        layout: { mode: 'VERTICAL' },
+        children: [{ type: 'instance', component: 'Button/Primary', overrides: { Label: 'Submit' }, hide: ['Subtitle'], width: 'fill' }],
+      };
+      expect(validateTree(tree)).toEqual([]);
+      const out = normalizeTree(tree);
+      expect(out.children![0]).toMatchObject({ type: 'instance', component: 'Button/Primary', overrides: { Label: 'Submit' }, hide: ['Subtitle'], width: 'fill' });
+    });
+
+    it('requires a component and forbids children on instances', () => {
+      expect(validateTree({ type: 'instance' } as TreeNodeInput).join()).toMatch(/needs a component/);
+      expect(
+        validateTree({ type: 'instance', component: 'X', children: [{ type: 'rectangle' }] } as TreeNodeInput).join()
+      ).toMatch(/only frames can have children/);
+    });
+
+    it('allows hug on an instance but not fill outside auto-layout', () => {
+      expect(validateTree({ type: 'frame', layout: { mode: 'VERTICAL' }, children: [{ type: 'instance', component: 'X', height: 'hug' }] })).toEqual([]);
+      expect(
+        validateTree({ type: 'frame', children: [{ type: 'instance', component: 'X', width: 'fill' }] }).join()
+      ).toMatch(/"fill" needs an auto-layout parent/);
+    });
+  });
+
   describe('normalizeTree', () => {
     it('maps the KPI card to plugin params', () => {
       const out = normalizeTree(kpiCard);

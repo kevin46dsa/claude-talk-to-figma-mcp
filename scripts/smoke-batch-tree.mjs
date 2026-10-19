@@ -67,8 +67,8 @@ try {
 
   // 1. plugin version (proves the new plugin code is loaded)
   const ping = await send("ping");
-  check("plugin reports version 1.1.0", ping.version === "1.1.0", JSON.stringify(ping));
-  if (ping.version !== "1.1.0") throw new Error("Plugin is stale: re-run it in Figma, then run this again");
+  check("plugin reports version >= 1.1.0", ping.version >= "1.1.0", JSON.stringify(ping));
+  if (!(ping.version >= "1.1.0")) throw new Error("Plugin is stale: re-run it in Figma, then run this again");
 
   // 2. scratch frame
   const scratch = await send("create_frame", { x: 20000, y: 0, width: 800, height: 600, name: "bridge-smoke-test", parentId: pageId });
@@ -145,6 +145,28 @@ try {
   } catch (e) { failed = /partial tree removed/.test(e.message); }
   const after = (await send("get_node_info", { nodeId: scratchId })).children.length;
   check("build_tree failure rolls back (no orphan root)", failed && before === after, `children before=${before} after=${after}`);
+  // 8. components: instantiate with text overrides by layer name (needs plugin >= 1.2.0)
+  if (ping.version >= "1.2.0") {
+    const btn = await send("build_tree", { parentId: scratchId, x: 500, y: 320, tree: { type: "frame", name: "SmokeButton", width: "hug", height: 36,
+      fillColor: { r: 0.07, g: 0.72, b: 0.53 }, layoutMode: "HORIZONTAL", paddingLeft: 16, paddingRight: 16,
+      children: [{ type: "text", name: "Label", text: "Button", fontSize: 14, fontWeight: 600 }] } });
+    const comp = await send("create_component_from_node", { nodeId: btn.rootId, name: "Smoke/Button", parentId: scratchId });
+    const inst = await send("instantiate", { component: "Smoke/Button", parentId: scratchId, x: 500, y: 400, overrides: { Label: "Submit payment" } });
+    const instInfo = await send("get_node_info", { nodeId: inst.id });
+    const labelText = JSON.stringify(instInfo).includes("Submit payment");
+    check("instantiate by name + text override by layer name", labelText, inst.component);
+    let badLayer = false;
+    try { await send("instantiate", { component: "Smoke/Button", parentId: scratchId, overrides: { Nope: "x" } }); } catch (e) { badLayer = /No text layer named/.test(e.message); }
+    check("instantiate with a wrong layer name fails and leaves nothing", badLayer);
+    const tree2 = await send("build_tree", { parentId: scratchId, x: 20, y: 500, tree: { type: "frame", name: "WithInstance", width: 300, height: "hug",
+      layoutMode: "VERTICAL", itemSpacing: 8, paddingTop: 8, paddingBottom: 8, paddingLeft: 8, paddingRight: 8,
+      children: [{ type: "instance", name: "Btn", component: "Smoke/Button", overrides: { Label: "Via tree" }, width: "fill" }] } });
+    check("build_tree instance node with fill width", tree2.nodeCount === 2, JSON.stringify(tree2.ids));
+    const listed = await send("list_frames", { parentId: scratchId, types: ["FRAME", "COMPONENT"] });
+    check("list_frames returns nodes with sizes", listed.count >= 3 && typeof listed.nodes[0].width === "number", `count=${listed.count}`);
+    const focused = await send("focus_node", { nodeId: scratchId });
+    check("focus_node selects + zooms", focused.id === scratchId, `zoom=${focused.zoom}`);
+  }
 } catch (error) {
   failures++;
   console.error("ERROR", error.message);

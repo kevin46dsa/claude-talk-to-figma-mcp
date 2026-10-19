@@ -59,7 +59,7 @@ const CREATION_COMMANDS = new Set([
   // FigJam creation commands
   "create_section", "create_sticky", "create_shape_with_text", "create_connector",
   // Composite builders (v1.1.0)
-  "build_tree",
+  "build_tree", "instantiate",
 ]);
 
 // Stateful commands blocked unconditionally (use parentId-based targeting instead)

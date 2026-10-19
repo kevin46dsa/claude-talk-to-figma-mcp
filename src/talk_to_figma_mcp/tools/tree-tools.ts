@@ -6,11 +6,12 @@ import { TREE_MAX_DEPTH, TREE_MAX_NODES, normalizeTree, validateTree, TreeNodeIn
 
 const TREE_DESCRIPTION =
   `Build a whole card/section/screen from ONE nested spec instead of many create_* calls. ` +
-  `Node: {type: "frame"|"rectangle"|"text"|"ellipse", name?, width?, height? (number | "fill" | "hug"), ` +
+  `Node: {type: "frame"|"rectangle"|"text"|"ellipse"|"instance", name?, width?, height? (number | "fill" | "hug"), ` +
   `fill?, stroke? ("#rrggbb" or {r,g,b,a} 0-1), strokeWeight?, cornerRadius?, opacity?, ` +
   `layout?: {mode: "VERTICAL"|"HORIZONTAL"|"NONE", gap?, padding? (number | [v,h] | [t,r,b,l]), align?, crossAlign? ("start"|"center"|"end"|"space-between"), wrap?}, ` +
   `clipsContent?, children?: Node[], ` +
   `text nodes: text, fontSize?, fontWeight?, fontColor?, textAlign? ("left"|"center"|"right"), lineHeight?, letterSpacing?, maxWidth?}. ` +
+  `instance nodes place a LOCAL component: {type:"instance", component:"Button/Primary" (name, key or id), overrides?:{"Label":"Submit"} (text by layer name), hide?:["Subtitle"], width?/height?}. ` +
   `"fill" needs an auto-layout parent; "hug" needs an auto-layout frame (or text). ` +
   `Children of an auto-layout frame are positioned automatically, so no x/y arithmetic. ` +
   `Limits: depth ${TREE_MAX_DEPTH}, ${TREE_MAX_NODES} nodes. Everything is created or nothing is (a failure removes the partial tree).`;

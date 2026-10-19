@@ -125,7 +125,7 @@ async function getNodeByIdSafe(nodeId) {
 async function handleCommand(command, params) {
   switch (command) {
     case "ping":
-      return { status: "ok", version: PLUGIN_VERSION, features: ["batch", "build_tree"] };
+      return { status: "ok", version: PLUGIN_VERSION, features: ["batch", "build_tree", "instantiate", "focus_node", "list_frames"] };
     case "get_document_info":
       return await getDocumentInfo();
     case "get_selection":
@@ -150,6 +150,12 @@ async function handleCommand(command, params) {
       return await batchExecute(params);
     case "build_tree":
       return await buildTree(params);
+    case "instantiate":
+      return await instantiate(params);
+    case "focus_node":
+      return await focusNode(params);
+    case "list_frames":
+      return await listFrames(params);
     case "set_fill_color":
       return await setFillColor(params);
     case "set_stroke_color":
@@ -435,7 +441,7 @@ async function getNodesInfo(nodeIds) {
 }
 
 // ─── Shared creation helpers (v1.1.0) ──────────────────────────────────────
-const PLUGIN_VERSION = "1.1.0";
+const PLUGIN_VERSION = "1.2.0";
 
 function applyCornerRadius(node, cr) {
   if (cr === undefined || cr === null || !("cornerRadius" in node)) return;
@@ -6504,6 +6510,11 @@ function treeNodeToParams(node, parentId, root) {
       if (node[k] !== undefined) p[k] = node[k];
     });
   }
+  if (node.type === "instance") {
+    ["component", "overrides", "hide"].forEach(function (k) {
+      if (node[k] !== undefined) p[k] = node[k];
+    });
+  }
   if (node.type === "text") {
     ["text", "fontSize", "fontWeight", "fontColor", "textAlignHorizontal", "lineHeight",
      "letterSpacing", "textCase", "textDecoration", "textAutoResize"].forEach(function (k) {
@@ -6518,7 +6529,7 @@ function treeNodeToParams(node, parentId, root) {
 }
 
 async function buildTreeNode(node, parentId, path, ctx) {
-  var command = { frame: "create_frame", rectangle: "create_rectangle", text: "create_text", ellipse: "create_ellipse" }[node.type];
+  var command = { frame: "create_frame", rectangle: "create_rectangle", text: "create_text", ellipse: "create_ellipse", instance: "instantiate" }[node.type];
   if (!command) throw new Error("Unsupported node type '" + node.type + "'");
   var isRoot = path === "root";
   var result;
@@ -6580,4 +6591,100 @@ async function buildTree(params) {
     throw new Error("build_tree failed after " + ctx.count + " of " + stats.count + " nodes (partial tree removed): " +
       ((error && error.message) || String(error)));
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Components, focus and listing (v1.2.0)
+// ═══════════════════════════════════════════════════════════════════════════
+async function findLocalComponent(ref) {
+  var match = function (c) { return c.key === ref || c.id === ref || c.name === ref; };
+  var found = figma.currentPage.findAllWithCriteria({ types: ["COMPONENT"] }).find(match);
+  if (found) return found;
+  await figma.loadAllPagesAsync();
+  return figma.root.findAllWithCriteria({ types: ["COMPONENT"] }).find(match) || null;
+}
+
+// Creates an instance of a local component and applies text overrides by LAYER NAME.
+// params: component (key | id | exact name), parentId, x, y, name, width, height,
+//         layoutSizingHorizontal/Vertical, overrides {layerName: "text"}, hide ["layerName"]
+async function instantiate(params) {
+  var p = params || {};
+  if (!p.component) throw new Error("instantiate requires a component (key, id or exact name)");
+  if (!p.parentId) throw new Error("instantiate requires a parentId");
+  var comp = await findLocalComponent(p.component);
+  if (!comp) throw new Error("Component not found: '" + p.component + "' (use its key, id or exact name, e.g. 'Button/Primary')");
+  var parent = await getNodeByIdSafe(p.parentId);
+  if (!parent) throw new Error("Parent node not found with ID: " + p.parentId);
+  if (!("appendChild" in parent)) throw new Error("Parent node does not support children: " + p.parentId);
+
+  var inst = comp.createInstance();
+  parent.appendChild(inst);
+  try {
+    inst.x = p.x || 0;
+    inst.y = p.y || 0;
+    if (p.name) inst.name = p.name;
+    if (typeof p.width === "number" || typeof p.height === "number") {
+      inst.resize(typeof p.width === "number" ? p.width : inst.width, typeof p.height === "number" ? p.height : inst.height);
+    }
+    applyLayoutSizing(inst, p);
+
+    var overrides = p.overrides || {};
+    var layers = Object.keys(overrides);
+    for (var i = 0; i < layers.length; i++) {
+      var texts = inst.findAll(function (n) { return n.type === "TEXT" && n.name === layers[i]; });
+      if (!texts.length) throw new Error("No text layer named '" + layers[i] + "' in component '" + comp.name + "'");
+      for (var t = 0; t < texts.length; t++) {
+        if (typeof texts[t].fontName === "object") await figma.loadFontAsync(texts[t].fontName);
+        await setCharacters(texts[t], String(overrides[layers[i]]));
+      }
+    }
+    var hide = p.hide || [];
+    for (var h = 0; h < hide.length; h++) {
+      var hidden = inst.findAll(function (n) { return n.name === hide[h]; });
+      if (!hidden.length) throw new Error("No layer named '" + hide[h] + "' in component '" + comp.name + "'");
+      hidden.forEach(function (n) { n.visible = false; });
+    }
+  } catch (error) {
+    try { inst.remove(); } catch (e) { /* ignore */ }
+    throw error;
+  }
+  return { id: inst.id, name: inst.name, component: comp.name, x: inst.x, y: inst.y, width: inst.width, height: inst.height,
+           parentId: inst.parent ? inst.parent.id : undefined };
+}
+
+// Scrolls/zooms the viewport to a node and selects it (switching page if needed).
+async function focusNode(params) {
+  var p = params || {};
+  if (!p.nodeId) throw new Error("focus_node requires a nodeId");
+  var node = await getNodeByIdSafe(p.nodeId);
+  if (!node) throw new Error("Node not found with ID: " + p.nodeId);
+  var page = node;
+  while (page && page.type !== "PAGE") page = page.parent;
+  if (page && page !== figma.currentPage) await figma.setCurrentPageAsync(page);
+  figma.currentPage.selection = [node];
+  figma.viewport.scrollAndZoomIntoView([node]);
+  return { id: node.id, name: node.name, type: node.type, zoom: figma.viewport.zoom };
+}
+
+// Lists children of a node (default: the current page) with canvas position and size.
+async function listFrames(params) {
+  var p = params || {};
+  var root = p.parentId ? await getNodeByIdSafe(p.parentId) : figma.currentPage;
+  if (!root) throw new Error("Node not found with ID: " + p.parentId);
+  var maxDepth = Math.min(Math.max(parseInt(p.depth, 10) || 1, 1), 3);
+  var wanted = p.types && p.types.length ? p.types : null;
+  var out = [];
+  var walk = function (node, depth) {
+    ("children" in node ? node.children : []).forEach(function (c) {
+      var box = c.absoluteBoundingBox || { x: c.x, y: c.y, width: c.width, height: c.height };
+      if (!wanted || wanted.indexOf(c.type) !== -1) {
+        out.push({ id: c.id, name: c.name, type: c.type, x: box.x, y: box.y, width: box.width, height: box.height,
+                   parentId: node.id, childCount: "children" in c ? c.children.length : 0 });
+      }
+      if (depth < maxDepth && "children" in c) walk(c, depth + 1);
+    });
+  };
+  walk(root, 1);
+  return { parentId: root.id, count: out.length, nodes: out };
 }
