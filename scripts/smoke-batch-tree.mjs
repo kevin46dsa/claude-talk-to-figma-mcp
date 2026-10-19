@@ -28,8 +28,9 @@ let calls = 0;
 ws.on("message", (raw) => {
   let json;
   try { json = JSON.parse(raw); } catch { return; }
+  if (json.type === "progress_update" || json.type === "queue_position") return;
   const msg = json.message;
-  if (!msg || msg.command || !msg.id || !pending.has(msg.id)) return;
+  if (!msg || typeof msg !== "object" || msg.command || !msg.id || !pending.has(msg.id)) return;
   const { resolve, reject } = pending.get(msg.id);
   pending.delete(msg.id);
   const error = msg.error ?? (msg.result && msg.result.error);
