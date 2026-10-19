@@ -142,6 +142,15 @@ This MCP server supports **safe parallel execution** out of the box, allowing mu
 
 If you prefer Docker or need to run the WebSocket server in a team environment, see the [Docker installation guide](INSTALLATION.md#alternative-using-docker) in the detailed installation documentation.
 
+## ⚡ Fast building
+
+Building a screen one node at a time is slow. Two tools collapse that into a handful of calls:
+
+- `build_tree` creates a whole card or section from one nested JSON spec, with auto-layout (no x/y math).
+- `batch` runs up to 200 commands in one request and lets later commands reference earlier results (`"parentId": "$card.id"`).
+
+Both are one undo step in Figma and are rolled back or reported cleanly on failure. See [Fast building in COMMANDS.md](COMMANDS.md#fast-building-batch-and-build_tree) for examples. After updating, re-run the Figma plugin so it loads the new code.
+
 ## 🛠️ Capabilities
 
 **Design analysis**

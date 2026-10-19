@@ -55,6 +55,9 @@ export function registerPrompts(server: McpServer): void {
      * Use strokeColor for borders
      * Set proper fontWeight for different text elements
 
+   - For many elements, prefer build_tree() (one call per card or section, auto-layout, no x/y math)
+     and batch() (many commands in one call, with "$id.path" references) over one call per element
+
 6. Mofifying existing elements:
   - use set_text_content() to modify text content.
 

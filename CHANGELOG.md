@@ -7,6 +7,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-19
+
+### Added
+- **`batch` tool**: run up to 200 bridge commands in a single request. Operations may carry an `id`, and later operations can reference earlier results with `"$id"` / `"$id.path"` (for example `parentId: "$card.id"`). Supports `onError: "stop" | "continue"`, `validateOnly`, a single undo step, and progress updates so long batches never hit the inactivity timeout. Text content (`text`, `characters`) is never treated as a reference, so strings such as `"$20.00"` are safe.
+- **`build_tree` tool**: build a whole card, section or screen from one nested JSON spec (frame, rectangle, text, ellipse) with auto-layout, `"fill"` / `"hug"` sizing, hex colors and `maxWidth`. Validates before touching the file (depth <= 8, <= 300 nodes), loads fonts up front, and removes the partial tree if any node fails.
+- **Richer creation params**: `create_rectangle` and `create_frame` accept `cornerRadius`, `opacity`, `layoutSizingHorizontal` and `layoutSizingVertical`; `create_frame` also accepts auto-layout settings (`layoutMode`, `itemSpacing`, padding, alignment, `layoutWrap`, `clipsContent`); `create_text` accepts `lineHeight`, `letterSpacing`, `textCase`, `textDecoration` and the layout sizing params. One create call now produces a finished node.
+- **`get_node_info` `fields` filter**: return only the listed top-level keys (plus `id`).
+- **Plugin version handshake**: `ping` now returns the plugin `version` and `features`.
+- Unit tests for reference resolution, batch and tree validation, tree normalisation, and a parity test that keeps the plugin's command list and `resolveRefs` in step with the TypeScript side. `scripts/smoke-batch-tree.mjs` is an end-to-end smoke test against a running plugin.
+
+### Changed
+- All additions are backwards compatible: existing tool calls behave exactly as in 1.0.0.
+- After updating, re-run the Figma plugin so it loads the new `code.js`; an old plugin answers `Unknown command: batch` / `build_tree`.
+
 ## [1.0.0] - 2026-04-18
 
 ### Added

@@ -108,6 +108,55 @@ Complete reference of the tools Claude can use to interact with Figma.
 | `create_connector` | Draw connector arrow | Link stickies or shapes with flow arrows |
 | `create_section` | Create section region | Group and organise content areas on the board |
 
+## Fast building (batch and build_tree)
+
+| Command | Purpose | Usage example |
+|---------|---------|---------------|
+| `batch` | Run up to 200 commands in one call | Create a frame, then children with `parentId: "$card.id"` |
+| `build_tree` | Build a nested frame/text/rectangle tree in one call | A KPI card, a toolbar, a whole section |
+
+Both run inside one queue slot and one undo step. Prefer `build_tree` for new UI and `batch` for repeated edits.
+
+**batch**
+
+```json
+{
+  "operations": [
+    { "id": "card",  "command": "create_frame", "params": { "parentId": "0:1", "x": 0, "y": 0, "width": 312, "height": 120, "name": "Card", "cornerRadius": 8 } },
+    { "id": "label", "command": "create_text",  "params": { "parentId": "$card.id", "x": 16, "y": 16, "text": "Total Expenses", "fontSize": 13 } },
+    { "command": "create_text", "params": { "parentId": "$card.id", "x": 16, "y": 40, "text": "$4,481.80", "fontSize": 28, "fontWeight": 700 } },
+    { "command": "move_node", "params": { "nodeId": "$label.id", "x": 20, "y": 16 } }
+  ],
+  "onError": "stop"
+}
+```
+
+- `"$id"` or `"$id.path.to.value"` is replaced by that earlier operation's result. Ids start with a letter or underscore, so `"$20.00"` is never a reference. `text` and `characters` values are never resolved. Write `"$$x"` for a literal `$x` in other fields.
+- Creation commands still need a `parentId` (a `$ref` counts). Nested `batch` is rejected.
+- `onError: "stop"` (default) skips the remaining operations after the first failure; `"continue"` runs them all. `validateOnly: true` validates without changing the file.
+
+**build_tree**
+
+```json
+{
+  "parentId": "0:1", "x": 0, "y": 0,
+  "tree": {
+    "type": "frame", "name": "Card", "width": 312, "height": "hug",
+    "fill": "#ffffff", "stroke": "#dedede", "cornerRadius": 8,
+    "layout": { "mode": "VERTICAL", "gap": 4, "padding": 16 },
+    "children": [
+      { "type": "text", "name": "Label", "text": "Total Expenses", "fontSize": 13, "fontColor": "#808080" },
+      { "type": "text", "name": "Value",  "text": "$4,481.80", "fontSize": 28, "fontWeight": 700 },
+      { "type": "text", "name": "Delta",  "text": "vs Sep", "fontSize": 12, "width": "fill" }
+    ]
+  }
+}
+```
+
+- Node types: `frame`, `rectangle`, `text`, `ellipse`. `width` / `height` accept a number, `"fill"` (needs an auto-layout parent) or `"hug"` (needs an auto-layout frame, or a text node).
+- Colors: `"#rgb"`, `"#rrggbb"`, `"#rrggbbaa"` or `{r,g,b,a}` with 0-1 values. `layout.padding` takes a number, `[vertical, horizontal]` or `[top, right, bottom, left]`.
+- Returns `rootId` and a map of named node ids. Limits: depth 8, 300 nodes. On any failure the partial tree is removed.
+
 ## Understanding coordinate systems
 
 Figma uses two coordinate systems:
