@@ -3,6 +3,29 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { sendCommandToFigma } from "../utils/websocket";
 import { coerceJson } from "../utils/schema-helpers";
 
+// Optional v1.1.0 parameters shared by the creation tools
+const cornerRadiusSchema = coerceJson(
+  z.union([
+    z.coerce.number().min(0),
+    z.object({
+      topLeft: z.coerce.number().min(0).optional(),
+      topRight: z.coerce.number().min(0).optional(),
+      bottomRight: z.coerce.number().min(0).optional(),
+      bottomLeft: z.coerce.number().min(0).optional(),
+    }),
+  ])
+)
+  .optional()
+  .describe("Corner radius: a number, or {topLeft, topRight, bottomRight, bottomLeft}");
+const opacitySchema = z.coerce.number().min(0).max(1).optional().describe("Node opacity (0-1)");
+const layoutSizingSchema = z.enum(["FIXED", "HUG", "FILL"]).optional();
+const layoutSizingHorizontalSchema = layoutSizingSchema.describe(
+  "Horizontal sizing inside an auto-layout parent: FIXED, HUG (fit content) or FILL (stretch). FILL needs an auto-layout parent."
+);
+const layoutSizingVerticalSchema = layoutSizingSchema.describe(
+  "Vertical sizing inside an auto-layout parent: FIXED, HUG (fit content) or FILL (stretch). FILL needs an auto-layout parent."
+);
+
 /**
  * Register creation tools to the MCP server
  * This module contains tools for creating various shapes and elements in Figma
@@ -40,8 +63,12 @@ export function registerCreationTools(server: McpServer): void {
         .optional()
         .describe("Stroke color in RGBA format"),
       strokeWeight: z.coerce.number().positive().optional().describe("Stroke weight"),
+      cornerRadius: cornerRadiusSchema,
+      opacity: opacitySchema,
+      layoutSizingHorizontal: layoutSizingHorizontalSchema,
+      layoutSizingVertical: layoutSizingVerticalSchema,
     },
-    async ({ x, y, width, height, name, parentId, fillColor, strokeColor, strokeWeight }) => {
+    async ({ x, y, width, height, name, parentId, fillColor, strokeColor, strokeWeight, cornerRadius, opacity, layoutSizingHorizontal, layoutSizingVertical }) => {
       try {
         const result = await sendCommandToFigma("create_rectangle", {
           x,
@@ -53,6 +80,10 @@ export function registerCreationTools(server: McpServer): void {
           fillColor,
           strokeColor,
           strokeWeight,
+          cornerRadius,
+          opacity,
+          layoutSizingHorizontal,
+          layoutSizingVertical,
         });
         return {
           content: [
@@ -106,6 +137,29 @@ export function registerCreationTools(server: McpServer): void {
         .optional()
         .describe("Stroke color in RGBA format"),
       strokeWeight: z.coerce.number().positive().optional().describe("Stroke weight"),
+      cornerRadius: cornerRadiusSchema,
+      opacity: opacitySchema,
+      layoutMode: z
+        .enum(["NONE", "HORIZONTAL", "VERTICAL"])
+        .optional()
+        .describe("Turn the frame into an auto-layout container (children are placed automatically)"),
+      itemSpacing: z.coerce.number().min(0).optional().describe("Auto-layout gap between children"),
+      paddingTop: z.coerce.number().min(0).optional().describe("Auto-layout top padding"),
+      paddingRight: z.coerce.number().min(0).optional().describe("Auto-layout right padding"),
+      paddingBottom: z.coerce.number().min(0).optional().describe("Auto-layout bottom padding"),
+      paddingLeft: z.coerce.number().min(0).optional().describe("Auto-layout left padding"),
+      primaryAxisAlignItems: z
+        .enum(["MIN", "CENTER", "MAX", "SPACE_BETWEEN"])
+        .optional()
+        .describe("Auto-layout main-axis alignment"),
+      counterAxisAlignItems: z
+        .enum(["MIN", "CENTER", "MAX"])
+        .optional()
+        .describe("Auto-layout cross-axis alignment"),
+      layoutWrap: z.enum(["NO_WRAP", "WRAP"]).optional().describe("Wrap children (horizontal auto-layout only)"),
+      clipsContent: z.boolean().optional().describe("Clip children to the frame bounds"),
+      layoutSizingHorizontal: layoutSizingHorizontalSchema,
+      layoutSizingVertical: layoutSizingVerticalSchema,
     },
     async ({
       x,
@@ -117,6 +171,20 @@ export function registerCreationTools(server: McpServer): void {
       fillColor,
       strokeColor,
       strokeWeight,
+      cornerRadius,
+      opacity,
+      layoutMode,
+      itemSpacing,
+      paddingTop,
+      paddingRight,
+      paddingBottom,
+      paddingLeft,
+      primaryAxisAlignItems,
+      counterAxisAlignItems,
+      layoutWrap,
+      clipsContent,
+      layoutSizingHorizontal,
+      layoutSizingVertical,
     }) => {
       try {
         const result = await sendCommandToFigma("create_frame", {
@@ -129,6 +197,20 @@ export function registerCreationTools(server: McpServer): void {
           fillColor: fillColor || { r: 1, g: 1, b: 1, a: 1 },
           strokeColor: strokeColor,
           strokeWeight: strokeWeight,
+          cornerRadius,
+          opacity,
+          layoutMode,
+          itemSpacing,
+          paddingTop,
+          paddingRight,
+          paddingBottom,
+          paddingLeft,
+          primaryAxisAlignItems,
+          counterAxisAlignItems,
+          layoutWrap,
+          clipsContent,
+          layoutSizingHorizontal,
+          layoutSizingVertical,
         });
         const typedResult = result as { name: string; id: string };
         return {
@@ -194,8 +276,14 @@ export function registerCreationTools(server: McpServer): void {
         .positive()
         .optional()
         .describe("Fixed width for the text node. Use with textAutoResize HEIGHT for wrapping text within a specific width."),
+      lineHeight: z.coerce.number().positive().optional().describe("Line height in px (also sets the row height of multi-line text)"),
+      letterSpacing: z.coerce.number().optional().describe("Letter spacing in px"),
+      textCase: z.enum(["ORIGINAL", "UPPER", "LOWER", "TITLE"]).optional().describe("Text case"),
+      textDecoration: z.enum(["NONE", "UNDERLINE", "STRIKETHROUGH"]).optional().describe("Text decoration"),
+      layoutSizingHorizontal: layoutSizingHorizontalSchema,
+      layoutSizingVertical: layoutSizingVerticalSchema,
     },
-    async ({ x, y, text, fontSize, fontWeight, fontColor, name, parentId, textAlignHorizontal, textAutoResize, width }) => {
+    async ({ x, y, text, fontSize, fontWeight, fontColor, name, parentId, textAlignHorizontal, textAutoResize, width, lineHeight, letterSpacing, textCase, textDecoration, layoutSizingHorizontal, layoutSizingVertical }) => {
       try {
         const result = await sendCommandToFigma("create_text", {
           x,
@@ -209,6 +297,12 @@ export function registerCreationTools(server: McpServer): void {
           textAlignHorizontal,
           textAutoResize,
           width,
+          lineHeight,
+          letterSpacing,
+          textCase,
+          textDecoration,
+          layoutSizingHorizontal,
+          layoutSizingVertical,
         });
         const typedResult = result as { name: string; id: string };
         return {

@@ -125,7 +125,7 @@ async function getNodeByIdSafe(nodeId) {
 async function handleCommand(command, params) {
   switch (command) {
     case "ping":
-      return { status: "ok" };
+      return { status: "ok", version: PLUGIN_VERSION, features: ["batch", "build_tree"] };
     case "get_document_info":
       return await getDocumentInfo();
     case "get_selection":
@@ -146,6 +146,10 @@ async function handleCommand(command, params) {
       return await createFrame(params);
     case "create_text":
       return await createText(params);
+    case "batch":
+      return await batchExecute(params);
+    case "build_tree":
+      return await buildTree(params);
     case "set_fill_color":
       return await setFillColor(params);
     case "set_stroke_color":
@@ -430,6 +434,77 @@ async function getNodesInfo(nodeIds) {
   }
 }
 
+// ─── Shared creation helpers (v1.1.0) ──────────────────────────────────────
+const PLUGIN_VERSION = "1.1.0";
+
+function applyCornerRadius(node, cr) {
+  if (cr === undefined || cr === null || !("cornerRadius" in node)) return;
+  if (typeof cr === "number") {
+    node.cornerRadius = cr;
+  } else if (typeof cr === "object") {
+    if (cr.topLeft !== undefined) node.topLeftRadius = cr.topLeft;
+    if (cr.topRight !== undefined) node.topRightRadius = cr.topRight;
+    if (cr.bottomRight !== undefined) node.bottomRightRadius = cr.bottomRight;
+    if (cr.bottomLeft !== undefined) node.bottomLeftRadius = cr.bottomLeft;
+  }
+}
+
+function applyFrameLayout(frame, p) {
+  if (p.layoutMode && p.layoutMode !== "NONE") {
+    frame.layoutMode = p.layoutMode;
+    // Keep the requested width/height unless HUG/FILL is asked for below
+    frame.primaryAxisSizingMode = "FIXED";
+    frame.counterAxisSizingMode = "FIXED";
+    if (p.layoutWrap) frame.layoutWrap = p.layoutWrap;
+    if (p.itemSpacing !== undefined) frame.itemSpacing = p.itemSpacing;
+    if (p.paddingTop !== undefined) frame.paddingTop = p.paddingTop;
+    if (p.paddingRight !== undefined) frame.paddingRight = p.paddingRight;
+    if (p.paddingBottom !== undefined) frame.paddingBottom = p.paddingBottom;
+    if (p.paddingLeft !== undefined) frame.paddingLeft = p.paddingLeft;
+    if (p.primaryAxisAlignItems) frame.primaryAxisAlignItems = p.primaryAxisAlignItems;
+    if (p.counterAxisAlignItems) frame.counterAxisAlignItems = p.counterAxisAlignItems;
+  }
+  if (p.clipsContent !== undefined) frame.clipsContent = !!p.clipsContent;
+}
+
+function applyLayoutSizing(node, p) {
+  var h = p.layoutSizingHorizontal;
+  var v = p.layoutSizingVertical;
+  if (!h && !v) return;
+  var parent = node.parent;
+  var parentAuto = !!(parent && "layoutMode" in parent && parent.layoutMode !== "NONE");
+  var selfAuto = "layoutMode" in node && node.layoutMode !== "NONE";
+  [["layoutSizingHorizontal", h], ["layoutSizingVertical", v]].forEach(function (pair) {
+    var prop = pair[0], val = pair[1];
+    if (!val) return;
+    if (["FIXED", "HUG", "FILL"].indexOf(val) === -1) {
+      throw new Error("Invalid " + prop + ": " + val);
+    }
+    if (val === "FILL" && !parentAuto) {
+      throw new Error(prop + ' FILL needs an auto-layout parent ("' + node.name + '" is not inside one)');
+    }
+    if (val === "HUG" && !selfAuto && node.type !== "TEXT") {
+      throw new Error(prop + ' HUG needs "' + node.name + '" to be an auto-layout frame or a text node');
+    }
+    node[prop] = val;
+  });
+}
+
+// Applies the optional v1.1.0 params after the node is attached to its parent.
+// On any failure the half-built node is removed so nothing is left behind.
+async function finishCreatedNode(node, params, extra) {
+  try {
+    var p = params || {};
+    applyCornerRadius(node, extra.cornerRadius);
+    if (extra.opacity !== undefined && "opacity" in node) node.opacity = extra.opacity;
+    if (extra.isFrame) applyFrameLayout(node, p);
+    applyLayoutSizing(node, p);
+  } catch (error) {
+    try { node.remove(); } catch (e) { /* ignore */ }
+    throw error;
+  }
+}
+
 async function createRectangle(params) {
   const {
     x = 0,
@@ -441,6 +516,8 @@ async function createRectangle(params) {
     fillColor,
     strokeColor,
     strokeWeight,
+    cornerRadius,
+    opacity,
   } = params || {};
 
   const rect = figma.createRectangle();
@@ -480,6 +557,8 @@ async function createRectangle(params) {
     figma.currentPage.appendChild(rect);
   }
 
+  await finishCreatedNode(rect, params, { cornerRadius, opacity });
+
   return {
     id: rect.id,
     name: rect.name,
@@ -502,6 +581,8 @@ async function createFrame(params) {
     fillColor,
     strokeColor,
     strokeWeight,
+    cornerRadius,
+    opacity,
   } = params || {};
 
   const frame = figma.createFrame();
@@ -540,6 +621,8 @@ async function createFrame(params) {
     targetParent = parentNode;
   }
   targetParent.appendChild(frame);
+
+  await finishCreatedNode(frame, params, { cornerRadius, opacity, isFrame: true });
 
   // Auto-Grid logic: if parent is a PAGE, add a standard column grid (hidden by default)
   if (targetParent.type === "PAGE") {
@@ -587,6 +670,10 @@ async function createText(params) {
     textAlignHorizontal,
     textAutoResize,
     width,
+    lineHeight,
+    letterSpacing,
+    textCase,
+    textDecoration,
   } = params || {};
 
   // Map common font weights to Figma font styles
@@ -658,6 +745,20 @@ async function createText(params) {
     textNode.resize(width, textNode.height);
   }
 
+  // Optional typography extras (v1.1.0), applied after the font is loaded
+  if (typeof lineHeight === "number" && lineHeight > 0) {
+    textNode.lineHeight = { value: lineHeight, unit: "PIXELS" };
+  }
+  if (typeof letterSpacing === "number") {
+    textNode.letterSpacing = { value: letterSpacing, unit: "PIXELS" };
+  }
+  if (textCase && ["ORIGINAL", "UPPER", "LOWER", "TITLE"].includes(textCase)) {
+    textNode.textCase = textCase;
+  }
+  if (textDecoration && ["NONE", "UNDERLINE", "STRIKETHROUGH"].includes(textDecoration)) {
+    textNode.textDecoration = textDecoration;
+  }
+
   // If parentId is provided, append to that node, otherwise append to current page
   if (parentId) {
     const parentNode = await getNodeByIdSafe(parentId);
@@ -671,6 +772,8 @@ async function createText(params) {
   } else {
     figma.currentPage.appendChild(textNode);
   }
+
+  await finishCreatedNode(textNode, params, {});
 
   return {
     id: textNode.id,
@@ -6234,3 +6337,247 @@ async function createEffectStyle(params) {
   };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// batch + build_tree (v1.1.0)
+// batch:      run many existing commands in one request, with $ref results.
+// build_tree: build a nested frame/text/rectangle tree in one request.
+// Reference-resolution and validation rules are mirrored (and unit-tested) in
+// src/talk_to_figma_mcp/utils/batch-utils.ts. Keep both in sync.
+// ═══════════════════════════════════════════════════════════════════════════
+const BATCH_MAX_OPS = 200;
+const TREE_MAX_DEPTH = 8;
+const TREE_MAX_NODES = 300;
+// "$name" / "$name.path.to.value". Ids must start with a letter/underscore so
+// money strings like "$20.00" are never treated as references.
+const REF_PATTERN = /^\$([A-Za-z_][A-Za-z0-9_-]*)((?:\.[A-Za-z0-9_-]+)*)$/;
+const REF_SKIP_KEYS = { text: true, characters: true };
+
+function resolveRefs(value, byId, key) {
+  if (typeof value === "string") {
+    if (key && REF_SKIP_KEYS[key]) return value;
+    if (value.indexOf("$$") === 0) return value.slice(1); // "$$x" escapes a literal "$x"
+    var m = REF_PATTERN.exec(value);
+    if (!m) return value;
+    if (!Object.prototype.hasOwnProperty.call(byId, m[1])) {
+      throw new Error("Unknown reference: " + value + " (no earlier operation with id '" + m[1] + "')");
+    }
+    var cur = byId[m[1]];
+    if (m[2]) {
+      var keys = m[2].slice(1).split(".");
+      for (var i = 0; i < keys.length; i++) {
+        if (cur === null || cur === undefined || typeof cur !== "object" || !(keys[i] in cur)) {
+          throw new Error("Reference path not found: " + value);
+        }
+        cur = cur[keys[i]];
+      }
+    }
+    return cur;
+  }
+  if (Array.isArray(value)) {
+    return value.map(function (v) { return resolveRefs(v, byId); });
+  }
+  if (value && typeof value === "object") {
+    var out = {};
+    Object.keys(value).forEach(function (k) { out[k] = resolveRefs(value[k], byId, k); });
+    return out;
+  }
+  return value;
+}
+
+function slimBatchResult(result) {
+  if (result && typeof result === "object" && !Array.isArray(result) && result.id !== undefined) {
+    var out = {};
+    ["id", "name", "x", "y", "width", "height", "parentId"].forEach(function (k) {
+      if (result[k] !== undefined) out[k] = result[k];
+    });
+    return out;
+  }
+  return result;
+}
+
+async function batchExecute(params) {
+  var p = params || {};
+  var operations = p.operations;
+  var onError = p.onError === "continue" ? "continue" : "stop";
+  var commandId = p.commandId;
+  var verbose = !!p.verbose;
+
+  if (!Array.isArray(operations) || operations.length === 0) {
+    throw new Error("operations must be a non-empty array");
+  }
+  if (operations.length > BATCH_MAX_OPS) {
+    throw new Error("Too many operations: " + operations.length + " (max " + BATCH_MAX_OPS + ")");
+  }
+  operations.forEach(function (op, i) {
+    if (!op || typeof op.command !== "string") throw new Error("Operation " + i + " is missing a command");
+    if (op.command === "batch") throw new Error("Operation " + i + ": batch cannot be nested");
+  });
+
+  if (p.validateOnly) {
+    return {
+      validateOnly: true,
+      operations: operations.length,
+      results: operations.map(function (op, i) { return { id: op.id, index: i, ok: true, validated: true }; }),
+    };
+  }
+
+  var byId = {};
+  var results = [];
+  var completed = 0, failed = 0, skipped = 0, stopped = false;
+
+  for (var i = 0; i < operations.length; i++) {
+    var op = operations[i];
+    if (stopped) {
+      skipped++;
+      results.push({ id: op.id, index: i, ok: false, skipped: true });
+      continue;
+    }
+    try {
+      var resolved = resolveRefs(op.params || {}, byId);
+      var result = await handleCommand(op.command, resolved);
+      if (op.id) byId[op.id] = result;
+      completed++;
+      results.push({ id: op.id, index: i, ok: true, result: verbose ? result : slimBatchResult(result) });
+    } catch (error) {
+      failed++;
+      results.push({ id: op.id, index: i, ok: false, error: (error && error.message) || String(error) });
+      if (onError === "stop") stopped = true;
+    }
+    if (commandId && (i + 1) % 10 === 0) {
+      sendProgressUpdate(commandId, "batch", "in_progress", Math.round(((i + 1) / operations.length) * 100),
+        operations.length, i + 1, "Batch " + (i + 1) + "/" + operations.length);
+    }
+  }
+  if (commandId) {
+    sendProgressUpdate(commandId, "batch", "completed", 100, operations.length, operations.length,
+      "Batch done: " + completed + " ok, " + failed + " failed, " + skipped + " skipped");
+  }
+  figma.commitUndo();
+  return { completed: completed, failed: failed, skipped: skipped, results: results };
+}
+
+// ─── build_tree ────────────────────────────────────────────────────────────
+function measureTree(node, depth, stats) {
+  stats.count++;
+  if (depth > stats.depth) stats.depth = depth;
+  (node.children || []).forEach(function (c) { measureTree(c, depth + 1, stats); });
+  return stats;
+}
+
+function collectTreeFontWeights(node, set) {
+  if (node.type === "text") set[node.fontWeight || 400] = true;
+  (node.children || []).forEach(function (c) { collectTreeFontWeights(c, set); });
+  return set;
+}
+
+function fontStyleForWeight(weight) {
+  var map = { 100: "Thin", 200: "Extra Light", 300: "Light", 400: "Regular", 500: "Medium",
+              600: "Semi Bold", 700: "Bold", 800: "Extra Bold", 900: "Black" };
+  return map[weight] || "Regular";
+}
+
+// Turns a (server-normalised) tree node into the params of the existing
+// create_* command. width/height accept a number, "fill" or "hug".
+function treeNodeToParams(node, parentId, root) {
+  var p = { parentId: parentId, name: node.name };
+  ["fillColor", "strokeColor", "strokeWeight", "cornerRadius", "opacity"].forEach(function (k) {
+    if (node[k] !== undefined) p[k] = node[k];
+  });
+  if (root) {
+    if (root.x !== undefined) p.x = root.x;
+    if (root.y !== undefined) p.y = root.y;
+  } else {
+    if (node.x !== undefined) p.x = node.x;
+    if (node.y !== undefined) p.y = node.y;
+  }
+  ["width", "height"].forEach(function (dim) {
+    var v = node[dim];
+    var sizingKey = dim === "width" ? "layoutSizingHorizontal" : "layoutSizingVertical";
+    if (typeof v === "number") p[dim] = v;
+    else if (v === "fill") p[sizingKey] = "FILL";
+    else if (v === "hug") p[sizingKey] = "HUG";
+  });
+  if (node.type === "frame") {
+    ["layoutMode", "itemSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+     "primaryAxisAlignItems", "counterAxisAlignItems", "layoutWrap", "clipsContent"].forEach(function (k) {
+      if (node[k] !== undefined) p[k] = node[k];
+    });
+  }
+  if (node.type === "text") {
+    ["text", "fontSize", "fontWeight", "fontColor", "textAlignHorizontal", "lineHeight",
+     "letterSpacing", "textCase", "textDecoration", "textAutoResize"].forEach(function (k) {
+      if (node[k] !== undefined) p[k] = node[k];
+    });
+    // A fixed or fill width means wrapping text: grow in height only
+    if ((typeof node.width === "number" || node.width === "fill") && !p.textAutoResize) {
+      p.textAutoResize = "HEIGHT";
+    }
+  }
+  return p;
+}
+
+async function buildTreeNode(node, parentId, path, ctx) {
+  var command = { frame: "create_frame", rectangle: "create_rectangle", text: "create_text", ellipse: "create_ellipse" }[node.type];
+  if (!command) throw new Error("Unsupported node type '" + node.type + "'");
+  var isRoot = path === "root";
+  var result;
+  try {
+    result = await handleCommand(command, treeNodeToParams(node, parentId, isRoot ? ctx.rootPos : null));
+  } catch (error) {
+    throw new Error(path + " (" + node.type + (node.name ? " '" + node.name + "'" : "") + "): " + ((error && error.message) || String(error)));
+  }
+  if (isRoot) ctx.rootId = result.id;
+  ctx.count++;
+  if (node.name) {
+    var key = node.name;
+    var n = 2;
+    while (Object.prototype.hasOwnProperty.call(ctx.ids, key)) key = node.name + "_" + n++;
+    ctx.ids[key] = result.id;
+  }
+  if (ctx.commandId && ctx.count % 10 === 0) {
+    sendProgressUpdate(ctx.commandId, "build_tree", "in_progress", Math.round((ctx.count / ctx.total) * 100),
+      ctx.total, ctx.count, "Built " + ctx.count + "/" + ctx.total + " nodes");
+  }
+  var children = node.children || [];
+  for (var i = 0; i < children.length; i++) {
+    await buildTreeNode(children[i], result.id, path + ".children[" + i + "]", ctx);
+  }
+  return result;
+}
+
+async function buildTree(params) {
+  var p = params || {};
+  if (!p.parentId) throw new Error("build_tree requires a parentId");
+  if (!p.tree || typeof p.tree !== "object") throw new Error("build_tree requires a tree");
+
+  var stats = measureTree(p.tree, 1, { count: 0, depth: 0 });
+  if (stats.depth > TREE_MAX_DEPTH) throw new Error("Tree too deep: " + stats.depth + " (max " + TREE_MAX_DEPTH + ")");
+  if (stats.count > TREE_MAX_NODES) throw new Error("Tree too large: " + stats.count + " nodes (max " + TREE_MAX_NODES + ")");
+
+  // Load every font up front so a bad font fails before anything is created
+  var weights = Object.keys(collectTreeFontWeights(p.tree, {}));
+  for (var w = 0; w < weights.length; w++) {
+    await figma.loadFontAsync({ family: "Inter", style: fontStyleForWeight(parseInt(weights[w], 10)) });
+  }
+
+  var ctx = { ids: {}, count: 0, total: stats.count, rootId: null, commandId: p.commandId,
+              rootPos: { x: p.x, y: p.y } };
+  try {
+    var root = await buildTreeNode(p.tree, p.parentId, "root", ctx);
+    if (ctx.commandId) {
+      sendProgressUpdate(ctx.commandId, "build_tree", "completed", 100, ctx.total, ctx.count, "Built " + ctx.count + " nodes");
+    }
+    figma.commitUndo();
+    return { rootId: root.id, ids: ctx.ids, nodeCount: ctx.count };
+  } catch (error) {
+    if (ctx.rootId) {
+      try {
+        var rootNode = await getNodeByIdSafe(ctx.rootId);
+        if (rootNode) rootNode.remove();
+      } catch (e) { /* ignore cleanup errors */ }
+    }
+    throw new Error("build_tree failed after " + ctx.count + " of " + stats.count + " nodes (partial tree removed): " +
+      ((error && error.message) || String(error)));
+  }
+}

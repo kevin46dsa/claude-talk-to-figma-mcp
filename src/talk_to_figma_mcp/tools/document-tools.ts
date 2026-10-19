@@ -74,11 +74,18 @@ export function registerDocumentTools(server: McpServer): void {
     {
       nodeId: z.string().describe("The ID of the node to get information about"),
       depth: z.number().int().min(0).optional().describe("How many child levels to include in full detail. Deeper levels return only id/name/type stubs."),
+      fields: coerceJson(z.array(z.string()))
+        .optional()
+        .describe('Only return these top-level keys (plus id), e.g. ["name","type","absoluteBoundingBox","characters"]. Keeps the response small.'),
     },
-    async ({ nodeId, depth }) => {
+    async ({ nodeId, depth, fields }) => {
       try {
         const result = await sendCommandToFigma("get_node_info", { nodeId });
-        const filtered = filterFigmaNode(result, depth ?? 1);
+        let filtered = filterFigmaNode(result, depth ?? 1);
+        if (fields && fields.length) {
+          const wanted = new Set<string>(["id", ...fields]);
+          filtered = Object.fromEntries(Object.entries(filtered).filter(([key]) => wanted.has(key)));
+        }
         const coordinateNote = filtered.absoluteBoundingBox && filtered.localPosition
           ? "absoluteBoundingBox contains global coordinates (relative to canvas). localPosition contains local coordinates (relative to parent, use these for move_node)."
           : undefined;
